@@ -29,6 +29,7 @@ done
 [[ -n "$CONFIG" ]] || { echo "ERROR: --config FILE is required" >&2; usage >&2; exit 2; }
 CONFIG="$(realpath "$CONFIG")"
 [[ -f "$CONFIG" ]] || { echo "ERROR: config not found: $CONFIG" >&2; exit 1; }
+CONTRASTS=""
 source "$CONFIG"
 CONFIG_DIR="$(dirname "$CONFIG")"
 resolve_path() {
@@ -101,6 +102,19 @@ log "STEP 0 — Validate configuration and samplesheet"
 "$PYTHON_BIN" "$REPO/scripts/prepare_samplesheet.py" \
   --samplesheet "$SAMPLESHEET" --layout "${LIBRARY_LAYOUT:?LIBRARY_LAYOUT not set}" \
   --output-dir "$OUTDIR/metadata" --check-fastq
+if [[ -n "${CONTRASTS:-}" ]]; then
+  log "Using explicit contrast selection: $CONTRASTS"
+else
+  CONTRASTS="$OUTDIR/metadata/pairwise_contrasts.csv"
+  log "Using automatically generated all-pairwise contrasts: $CONTRASTS"
+fi
+export CONTRASTS RNASEQ2TRACKS_RESOLVED_CONTRASTS="$CONTRASTS"
+N_CONTRASTS=$(awk 'END {print NR > 0 ? NR - 1 : 0}' "$CONTRASTS")
+log "Resolved $N_CONTRASTS condition contrast(s)"
+if [[ "${RUN_DE:-true}" == "true" && "$N_CONTRASTS" -eq 0 ]]; then
+  log "ERROR: RUN_DE=true requires at least two conditions or one explicit contrast"
+  exit 1
+fi
 "$REPO/scripts/preflight_check.sh" "$CONFIG"
 
 # ── Species path resolution ───────────────────────────────────────────────────
@@ -503,17 +517,13 @@ if [[ "${RUN_DE:-true}" != "true" ]]; then
 elif [[ "$_n16" -gt 0 ]] && [[ "$FORCE_RERUN" != "1" ]]; then
   skip "STEP 16 — DESeq2 DE"
 else
-  if [[ -f "${CONTRASTS:-$REPO/config/contrasts.csv}" ]]; then
-    export GTF
+  export GTF
   log "STEP 16 — DESeq2 DE"
-    "${RSCRIPT_BIN:-Rscript}" "$REPO/scripts/Rscripts/deseq2_de.R" \
-      --countsrdata "$OUTDIR/analysis/counts/dds.RData" \
-      --contrasts "${CONTRASTS:-$REPO/config/contrasts.csv}" \
-      --outdir "$OUTDIR/analysis/DE" \
-      --padj "${DE_PADJ_THRESHOLD:-0.05}" --lfc "${DE_LFC_THRESHOLD:-1}"
-  else
-    log "STEP 16 — DESeq2 DE SKIPPED (no contrasts.csv)"
-  fi
+  "${RSCRIPT_BIN:-Rscript}" "$REPO/scripts/Rscripts/deseq2_de.R" \
+    --countsrdata "$OUTDIR/analysis/counts/dds.RData" \
+    --contrasts "$CONTRASTS" \
+    --outdir "$OUTDIR/analysis/DE" \
+    --padj "${DE_PADJ_THRESHOLD:-0.05}" --lfc "${DE_LFC_THRESHOLD:-1}"
 fi
 
 # ── Step 17: DESeq2 QC plots ──────────────────────────────────────────────────
@@ -599,6 +609,8 @@ write_status running "rendering final report"
   printf 'samplesheet\t%s\n' "$SAMPLESHEET"
   printf 'biological_samples\t%s\n' "$N_SAMPLES"
   printf 'technical_library_or_lane_rows\t%s\n' "$N_LANES"
+  printf 'condition_contrasts\t%s\n' "$N_CONTRASTS"
+  printf 'contrasts\t%s\n' "$CONTRASTS"
   printf 'layout\t%s\n' "$LIBRARY_LAYOUT"
   printf 'species\t%s\n' "$SPECIES"
   printf 'config_sha256\t%s\n' "$(sha256sum "$CONFIG" | awk '{print $1}')"
@@ -757,6 +769,8 @@ CURRENT_STAGE="completed"
   printf 'samplesheet\t%s\n' "$SAMPLESHEET"
   printf 'biological_samples\t%s\n' "$N_SAMPLES"
   printf 'technical_library_or_lane_rows\t%s\n' "$N_LANES"
+  printf 'condition_contrasts\t%s\n' "$N_CONTRASTS"
+  printf 'contrasts\t%s\n' "$CONTRASTS"
   printf 'layout\t%s\n' "$LIBRARY_LAYOUT"
   printf 'species\t%s\n' "$SPECIES"
   printf 'config_sha256\t%s\n' "$(sha256sum "$CONFIG" | awk '{print $1}')"

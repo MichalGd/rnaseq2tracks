@@ -21,6 +21,8 @@ _sanitize_crlf() {
 _sanitize_crlf "$CONFIG" "config"
 # SAMPLESHEET and CONTRASTS are sourced from config, so source first then sanitize
 source "$CONFIG"
+[[ -n "${RNASEQ2TRACKS_RESOLVED_CONTRASTS:-}" ]] && \
+    CONTRASTS="$RNASEQ2TRACKS_RESOLVED_CONTRASTS"
 resolve_path() {
     local value="$1"
     [[ "$value" == "~/"* ]] && value="$HOME/${value#~/}"

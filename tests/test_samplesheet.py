@@ -23,6 +23,32 @@ merge_counts = load("merge_star_counts", ROOT / "scripts" / "merge_star_counts.p
 
 
 class SamplesheetTests(unittest.TestCase):
+    def test_all_unique_condition_pairs_are_generated_deterministically(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            samples = [
+                {
+                    "sample_id": f"S{index}",
+                    "biological_replicate_id": f"R{index}",
+                    "condition": condition,
+                    "batch": "",
+                    "description": "",
+                    "strandedness": "reverse",
+                    "technical_replicate_count": "1",
+                    "lane_count": "1",
+                }
+                for index, condition in enumerate(("control", "drug A", "drug-B"), 1)
+            ]
+            samplesheet.write_outputs(output, "SE", [], samples)
+            with (output / "pairwise_contrasts.csv").open(
+                encoding="utf-8", newline=""
+            ) as handle:
+                contrasts = list(csv.DictReader(handle))
+            self.assertEqual(
+                [row["contrast_id"] for row in contrasts],
+                ["drug_A_vs_control", "drug-B_vs_control", "drug-B_vs_drug_A"],
+            )
+
     def test_two_lanes_collapse_to_one_biological_sample(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -41,6 +67,17 @@ class SamplesheetTests(unittest.TestCase):
             self.assertEqual(len(biological), 2)
             self.assertEqual(biological[0]["lane_count"], "2")
             self.assertEqual(lanes[0]["library_id"], "CTRL_1__T1__L001")
+            output = root / "metadata"
+            samplesheet.write_outputs(output, "SE", lanes, biological)
+            with (output / "pairwise_contrasts.csv").open(
+                encoding="utf-8", newline=""
+            ) as handle:
+                contrasts = list(csv.DictReader(handle))
+            self.assertEqual(contrasts, [{
+                "contrast_id": "treated_vs_control",
+                "numerator": "treated",
+                "denominator": "control",
+            }])
 
     def test_inconsistent_sample_metadata_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:

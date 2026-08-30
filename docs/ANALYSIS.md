@@ -4,7 +4,9 @@
 
 The count matrix has one column per biological `sample_id`. Technical lane counts
 have already been summed. DESeq2 estimates library size factors and dispersions,
-fits the configured design, and evaluates each row in `contrasts.csv`.
+fits the configured design, and evaluates every unique pair of samplesheet
+conditions. An optional explicit `CONTRASTS` file can restrict or reorder these
+comparisons.
 
 Canonical result tables use shrunken log2 fold changes from apeglm when possible,
 with ashr and unshrunken fallbacks. Raw and shrunken MA/volcano plots are retained

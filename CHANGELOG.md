@@ -1,5 +1,12 @@
 # Changelog
 
+## 6.0.0-alpha.1.post1 — 2026-08-30
+
+- Generate every unique pairwise condition contrast directly from the
+  samplesheet by default.
+- Keep `CONTRASTS` as an optional expert override for a selected subset or
+  custom ordering; a separate contrasts file is no longer required.
+
 ## 6.0.0-alpha.1 — 2026-08-30
 
 Breaking metadata and launch-contract revision:

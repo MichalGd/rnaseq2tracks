@@ -7,9 +7,8 @@ PROJECT=/home/user/Analysis/my_rnaseq_project
 mkdir -p "$PROJECT/config"
 ```
 
-Copy `config_template.conf`, one SE/PE samplesheet template and
-`contrasts_template.csv` into that directory. Edit the copies, not the installed
-release.
+Copy `config_template.conf` and one SE/PE samplesheet template into that
+directory. Edit the copies, not the installed release.
 
 ## 2. Check the two input files
 
@@ -17,7 +16,8 @@ release.
 - Each samplesheet row identifies one technical library/lane and one unique FASTQ
   pair (PE) or FASTQ (SE).
 - Rows representing the same biological specimen use the same `sample_id`.
-- `contrasts.csv` condition names exactly match `condition` in the samplesheet.
+- Every unique pair of conditions is compared automatically; no separate
+  contrasts file is needed.
 
 ## 3. Launch
 
