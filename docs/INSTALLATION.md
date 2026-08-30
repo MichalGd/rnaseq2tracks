@@ -10,7 +10,7 @@ Prerequisites are a writable environment parent, Mamba, Git and enough storage.
 From a checked-out release source:
 
 ```bash
-bash scripts/bash/install_release.sh --tag v6.0.0-alpha.1
+bash scripts/bash/install_release.sh --tag v6.0.0-alpha.1.post1
 ```
 
 Defaults:

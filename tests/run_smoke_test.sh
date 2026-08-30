@@ -87,11 +87,28 @@ if [[ -f "$SS" ]]; then
 else warn "Samplesheet not found: $SS"; fi
 
 section "9. Contrasts"
-CF="${CONTRASTS:-$REPO/config/contrasts.csv}"
-if [[ -f "$CF" ]]; then
+CF="${CONTRASTS:-}"
+[[ -n "$CF" && "$CF" != /* ]] && CF="$CONFIG_DIR/$CF"
+if [[ -n "$CF" && -f "$CF" ]]; then
   NC=$(grep -vc '^[[:space:]]*#\|^contrast_id' "$CF" || true)
-  ok "$NC contrasts in $CF"
-else warn "Contrasts file not found: $CF (Step 16 and 21 will be skipped)"; fi
+  ok "$NC explicit contrasts in $CF"
+elif [[ -z "$CF" && -f "$SS" ]]; then
+  NC=$("${PYTHON_BIN:-python}" - "$SS" <<'PY'
+import csv
+import sys
+with open(sys.argv[1], encoding="utf-8-sig", newline="") as handle:
+    rows = csv.DictReader(
+        line for line in handle
+        if line.strip() and not line.lstrip().startswith("#")
+    )
+    conditions = list(dict.fromkeys(row["condition"].strip() for row in rows))
+print(len(conditions) * (len(conditions) - 1) // 2)
+PY
+  )
+  ok "$NC automatic all-pairwise contrasts"
+else
+  fail "Configured contrasts file not found: $CF"
+fi
 
 echo ""; echo "════════════════════════════════════════"
 echo "Smoke test: $PASS passed  $FAIL failed  $WARN warnings"

@@ -3,6 +3,7 @@
 ```text
 OUTDIR/
 ├── metadata/
+│   ├── pairwise_contrasts.csv
 │   ├── validated_lanes.tsv
 │   ├── validated_samples.tsv
 │   ├── analysis_samplesheet.csv

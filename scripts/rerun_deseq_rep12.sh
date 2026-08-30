@@ -11,12 +11,20 @@ set -euo pipefail
 
 CONFIG="$(realpath "$1")"
 source "$CONFIG"
+CONFIG_DIR="$(dirname "$CONFIG")"
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RSCRIPT="${RSCRIPT_BIN:-Rscript}"
+[[ "$OUTDIR" == /* ]] || OUTDIR="$(realpath -m "$CONFIG_DIR/$OUTDIR")"
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 FULL_COUNTS="${OUTDIR}/analysis/counts"          # from original run
 FULL_DDS="${FULL_COUNTS}/dds.RData"
+CONTRAST_FILE="${CONTRASTS:-$OUTDIR/metadata/pairwise_contrasts.csv}"
+[[ "$CONTRAST_FILE" == /* ]] || CONTRAST_FILE="$CONFIG_DIR/$CONTRAST_FILE"
+[[ -f "$CONTRAST_FILE" ]] || {
+  echo "ERROR: contrast table not found: $CONTRAST_FILE" >&2
+  exit 1
+}
 OUTDIR_R12="${OUTDIR}/analysis_rep12"            # new subdir — original untouched
 COUNTS_R12="${OUTDIR_R12}/counts"
 DE_R12="${OUTDIR_R12}/DE"
@@ -79,7 +87,7 @@ log "Step 3 — Differential expression analysis..."
 GTF="$_GTF" \
 "$RSCRIPT" "$REPO/scripts/Rscripts/deseq2_de.R" \
   --countsrdata "${COUNTS_R12}/dds.RData" \
-  --contrasts   "$(realpath "${CONTRASTS}")" \
+  --contrasts   "$(realpath "$CONTRAST_FILE")" \
   --outdir      "${DE_R12}" \
   --gtf         "$_GTF" \
   --padj        "${PADJ_THRESHOLD:-0.05}" \
@@ -88,7 +96,7 @@ GTF="$_GTF" \
 log "Step 4 — Enrichment analysis (ORA + GSEA)..."
 "$RSCRIPT" "$REPO/scripts/Rscripts/deseq2_enrichment.R" \
   --dedir     "${DE_R12}" \
-  --contrasts "$(realpath "${CONTRASTS}")" \
+  --contrasts "$(realpath "$CONTRAST_FILE")" \
   --outdir    "${OUTDIR_R12}/enrichment" \
   --species   "${SPECIES:-mouse}" \
   --padj      "${ENRICHMENT_PADJ:-0.05}" \

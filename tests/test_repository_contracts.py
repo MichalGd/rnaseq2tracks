@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class RepositoryContractTests(unittest.TestCase):
     def test_version_and_citation_use_new_identity(self):
-        self.assertEqual((ROOT / "VERSION").read_text().strip(), "6.0.0-alpha.1")
+        self.assertEqual((ROOT / "VERSION").read_text().strip(), "6.0.0-alpha.1.post1")
         citation = (ROOT / "CITATION.cff").read_text(encoding="utf-8")
         self.assertIn("MichalGd/rnaseq2tracks", citation)
         self.assertNotIn("rnaseq2tracksP", citation)
@@ -33,6 +33,8 @@ class RepositoryContractTests(unittest.TestCase):
         config = (ROOT / "config" / "config_template.conf").read_text(encoding="utf-8")
         self.assertIn('SAMPLESHEET="samplesheet.csv"', config)
         self.assertIn('RUN_ENRICHMENT="true"', config)
+        active = [line for line in config.splitlines() if not line.lstrip().startswith("#")]
+        self.assertFalse(any(line.startswith("CONTRASTS=") for line in active))
 
     def test_strand_check_reads_named_samplesheet_columns(self):
         script = (ROOT / "scripts" / "check_strand_consistency.sh").read_text(

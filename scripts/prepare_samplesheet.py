@@ -8,6 +8,7 @@ import csv
 import json
 import re
 from collections import OrderedDict
+from itertools import combinations
 from pathlib import Path
 
 
@@ -186,6 +187,36 @@ def write_outputs(output_dir: Path, layout: str, lanes: list[dict[str, str]], sa
             }
             writer.writerow({field: record[field] for field in analysis_fields})
 
+    conditions = list(OrderedDict.fromkeys(sample["condition"] for sample in samples))
+    contrast_rows: list[dict[str, str]] = []
+    used_ids: set[str] = set()
+    for denominator, numerator in combinations(conditions, 2):
+        base = f"{_slug(numerator)}_vs_{_slug(denominator)}"
+        contrast_id = base
+        suffix = 2
+        while contrast_id in used_ids:
+            contrast_id = f"{base}_{suffix}"
+            suffix += 1
+        used_ids.add(contrast_id)
+        contrast_rows.append({
+            "contrast_id": contrast_id,
+            "numerator": numerator,
+            "denominator": denominator,
+        })
+    with (output_dir / "pairwise_contrasts.csv").open(
+        "w", encoding="utf-8", newline=""
+    ) as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=["contrast_id", "numerator", "denominator"]
+        )
+        writer.writeheader()
+        writer.writerows(contrast_rows)
+
+
+def _slug(value: str) -> str:
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "_", value.strip()).strip("._-")
+    return slug or "condition"
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -197,6 +228,8 @@ def main() -> int:
     args = parser.parse_args()
     try:
         lanes, samples = validate(args.samplesheet.resolve(), args.layout, args.check_fastq)
+        contrast_count = len({sample["condition"] for sample in samples})
+        contrast_count = contrast_count * (contrast_count - 1) // 2
         if not args.validate_only:
             if args.output_dir is None:
                 parser.error("--output-dir is required unless --validate-only is used")
@@ -205,6 +238,7 @@ def main() -> int:
             "status": "valid",
             "biological_samples": len(samples),
             "technical_libraries_or_lanes": len(lanes),
+            "pairwise_contrasts": contrast_count,
             "layout": args.layout,
         }))
         return 0

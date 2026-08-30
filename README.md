@@ -21,8 +21,6 @@ cp /opt/conda_envs/rnaseq2tracks-*/share/rnaseq2tracks/config/config_template.co
   /home/user/Analysis/my_project/config/config.conf
 cp /opt/conda_envs/rnaseq2tracks-*/share/rnaseq2tracks/config/samplesheet_template_PE.csv \
   /home/user/Analysis/my_project/config/samplesheet.csv
-cp /opt/conda_envs/rnaseq2tracks-*/share/rnaseq2tracks/config/contrasts_template.csv \
-  /home/user/Analysis/my_project/config/contrasts.csv
 
 rnaseq2tracks --config /home/user/Analysis/my_project/config/config.conf
 ```
@@ -103,6 +101,10 @@ argument is:
 rnaseq2tracks --config /absolute/path/to/config.conf
 ```
 
+Every unique pair of samplesheet conditions is compared automatically. No
+`contrasts.csv` is required. Advanced users may set `CONTRASTS` to an explicit
+CSV when they intentionally want only a subset or a custom comparison order.
+
 Important resource settings are `MAX_JOBS`, `STAR_THREADS`,
 `SAMTOOLS_THREADS`, `FASTQC_THREADS` and `FASTQSCREEN_THREADS`. Approximate
 maximum STAR CPU demand is `MAX_JOBS × STAR_THREADS`; configure it within the
@@ -145,11 +147,11 @@ An administrator installs a tagged release once. The installer builds a pinned,
 read-only environment and promotes a stable launcher:
 
 ```bash
-bash scripts/bash/install_release.sh --tag v6.0.0-alpha.1
+bash scripts/bash/install_release.sh --tag v6.0.0-alpha.1.post1
 ```
 
 This produces a self-contained launcher such as
-`/opt/conda_envs/bin/rnaseq2tracks-6.0.0-alpha.1` and the stable
+`/opt/conda_envs/bin/rnaseq2tracks-6.0.0-alpha.1.post1` and the stable
 `/opt/conda_envs/bin/rnaseq2tracks`. Users do not activate Conda.
 
 ## Naming migration

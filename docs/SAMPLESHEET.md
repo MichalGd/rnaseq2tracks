@@ -57,4 +57,6 @@ directory. Input FASTQs are read-only and are never modified.
 - `metadata/validated_samples.tsv`: one row per biological sample.
 - `metadata/analysis_samplesheet.csv`: internal sample-level view for legacy R
   components.
+- `metadata/pairwise_contrasts.csv`: automatically generated all-pairwise
+  condition comparisons.
 - `metadata/technical_merge_audit.tsv`: final sample BAM and number of lane rows.

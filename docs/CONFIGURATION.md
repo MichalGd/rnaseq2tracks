@@ -6,9 +6,14 @@ Relative paths are interpreted relative to the config file.
 
 ## Project and inputs
 
-`PROJECT_ID`, `SPECIES`, `GENOME_ASSEMBLY`, `LIBRARY_LAYOUT`, `SAMPLESHEET`,
-`CONTRASTS` and `OUTDIR` define the project. `SPECIES` is `human` or `mouse`;
-layout is `SE` or `PE`.
+`PROJECT_ID`, `SPECIES`, `GENOME_ASSEMBLY`, `LIBRARY_LAYOUT`, `SAMPLESHEET` and
+`OUTDIR` define the project. `SPECIES` is `human` or `mouse`; layout is `SE` or
+`PE`.
+
+The workflow derives all unique pairwise condition comparisons in deterministic
+first-appearance order and records them in
+`metadata/pairwise_contrasts.csv`. `CONTRASTS` is optional: set it only to use an
+explicit subset or custom order instead.
 
 ## Reference resources
 
