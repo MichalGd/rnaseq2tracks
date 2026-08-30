@@ -1,58 +1,88 @@
-# Migration to the new contract and name
+# Migration from `rnaseq2tracksP`
 
-## Repository rename
+The public repository is now:
 
-The intended public identity is `rnaseq2tracks`, replacing `rnaseq2tracksP`.
+```text
+https://github.com/MichalGd/rnaseq2tracks
+```
 
-1. In GitHub open **Settings → General → Repository name**.
-2. Rename `rnaseq2tracksP` to `rnaseq2tracks`.
-3. Update a local clone:
+The executable, installed environment, launcher, documentation, and citation
+identity use `rnaseq2tracks`. Old GitHub URLs may redirect, but new scripts and
+citations should use the canonical name.
+
+## Update an existing clone
 
 ```bash
 git remote set-url origin https://github.com/MichalGd/rnaseq2tracks.git
 git remote -v
+git fetch origin
 ```
 
-GitHub normally redirects old URLs, but scripts, badges, citations and examples
-should use the canonical new URL. The executable, environment, installer,
-documentation and citation metadata now use `rnaseq2tracks`.
+Do not rename a directory containing an active run in place. Repository checkout
+paths are not the same as immutable installed release paths.
 
 ## Samplesheet migration
 
-Old rows had `sample_id,fastq_R1[,fastq_R2],condition,replicate,strandedness`.
-Convert `replicate` to `biological_replicate_id`; add
-`technical_replicate_id` and `lane_id`. For a sample with only one library/lane,
-use stable defaults such as `T01` and `L001`.
-
-Old PE:
+An older row represented one sample directly:
 
 ```csv
+sample_id,fastq_R1,fastq_R2,condition,replicate,strandedness
 WT_R1,/reads/WT_R1_1.fq.gz,/reads/WT_R1_2.fq.gz,WT,1,reverse
 ```
 
-New PE:
+The current PE contract is:
 
 ```csv
+sample_id,biological_replicate_id,technical_replicate_id,lane_id,fastq_R1,fastq_R2,condition,strandedness,batch,description
 WT_R1,R1,T01,L001,/reads/WT_R1_1.fq.gz,/reads/WT_R1_2.fq.gz,WT,reverse,,WT replicate 1
 ```
 
-Do not make lane IDs into biological sample IDs. Multiple lane rows share the
-same `sample_id`.
+For a sample with one library/lane, stable defaults such as `T01` and `L001` are
+appropriate. Multiple technical rows from the same biological specimen share
+`sample_id`; independent biological specimens never share it.
+
+Read [SAMPLESHEET.md](SAMPLESHEET.md) before migrating multi-lane data.
+
+## Contrast migration
+
+A separate contrast file is no longer required for ordinary runs. The workflow
+generates every unique pair of samplesheet conditions in
+`metadata/pairwise_contrasts.csv`.
+
+Set optional `CONTRASTS="contrasts.csv"` only when intentionally restricting or
+reordering comparisons. Remove stale active `CONTRASTS=` entries when the goal
+is automatic all-pairwise testing.
 
 ## Launch migration
 
-Old:
+Old pattern:
 
 ```bash
 conda activate rnaseq2tracks
 bash scripts/rnaseq2tracks.sh config/config.conf
 ```
 
-New:
+Current pattern:
 
 ```bash
-rnaseq2tracks --config /absolute/path/to/config.conf
+rnaseq2tracks --config /real/project/path/config/config.conf
 ```
 
-`SAMPLESHEET` remains inside config; there is no positional samplesheet argument.
-Use a new OUTDIR when validating a migrated project.
+There is no positional samplesheet or contrasts argument. No Conda activation or
+manual `PATH` export is needed after shared installation.
+
+## Output migration
+
+Use a new `OUTDIR` when validating a migrated project. The technical-row and
+biological-sample hierarchy changes filenames and statistical columns; mixing
+old partial outputs with the new contract can make checkpoints misleading.
+
+After the first migrated run, verify:
+
+- `metadata/validated_lanes.tsv`;
+- `metadata/validated_samples.tsv`;
+- `metadata/technical_merge_audit.tsv`;
+- `metadata/pairwise_contrasts.csv`;
+- final BAM/count columns;
+- DESeq2 sample metadata and contrasts;
+- clean-shell launcher/version provenance.
