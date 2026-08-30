@@ -1,376 +1,166 @@
-<p align="center">
-  <h1 align="center">rnaseq2tracks</h1>
-  <p align="center">End-to-end RNA-seq: raw FASTQ → counts → normalized BigWigs → differential expression → gene set enrichment</p>
-  <p align="center">
-    <img src="https://img.shields.io/badge/version-5.1-blue"/>
-    <img src="https://img.shields.io/badge/language-Bash%20%7C%20R-informational"/>
-    <img src="https://img.shields.io/badge/aligner-STAR-green"/>
-    <img src="https://img.shields.io/badge/QC-FastQ%20Screen%20%7C%20RSeQC-orange"/>
-    <img src="https://img.shields.io/badge/DE-DESeq2-red"/>
-    <img src="https://img.shields.io/badge/enrichment-ORA%20%7C%20GSEA-purple"/>
-    <img src="https://img.shields.io/badge/cleanup-Step%2022-lightgrey"/>
-    <img src="https://img.shields.io/badge/layout-SE%20%7C%20PE-orange"/>
-    <img src="https://img.shields.io/badge/species-human%20%7C%20mouse-lightblue"/>
-    <img src="https://img.shields.io/badge/license-MIT-lightgrey"/>
-  </p>
-</p>
+# rnaseq2tracks
 
----
+`rnaseq2tracks` is an end-to-end, server-oriented workflow for conventional
+single-end or paired-end RNA-seq. It turns raw FASTQ files into audited QC,
+sample-level BAMs, strand-aware normalized BigWigs, DESeq2 differential-expression
+results, functional enrichment and a self-contained HTML report.
+
+The current architecture adopts the operational contracts proven in
+`rna_ends2tracks`: lane-level metadata, explicit biological samples, deterministic
+technical-replicate merging, a stable installed launcher, one master log,
+checkpointed resume and run provenance.
+
+## Quick start
+
+No environment activation or manual `PATH` export is required after the shared
+release has been installed.
+
+```bash
+mkdir -p /home/user/Analysis/my_project/config
+cp /opt/conda_envs/rnaseq2tracks-*/share/rnaseq2tracks/config/config_template.conf \
+  /home/user/Analysis/my_project/config/config.conf
+cp /opt/conda_envs/rnaseq2tracks-*/share/rnaseq2tracks/config/samplesheet_template_PE.csv \
+  /home/user/Analysis/my_project/config/samplesheet.csv
+cp /opt/conda_envs/rnaseq2tracks-*/share/rnaseq2tracks/config/contrasts_template.csv \
+  /home/user/Analysis/my_project/config/contrasts.csv
+
+rnaseq2tracks --config /home/user/Analysis/my_project/config/config.conf
+```
+
+For a detached server run:
+
+```bash
+PROJECT=/home/user/Analysis/my_project
+nohup rnaseq2tracks --config "$PROJECT/config/config.conf" \
+  > "$PROJECT/rnaseq2tracks.launch.log" 2>&1 &
+echo $! > "$PROJECT/rnaseq2tracks.pid"
+```
+
+The workflow itself writes the complete chronological log to
+`OUTDIR/logs/rnaseq2tracks.log` and its current state to
+`OUTDIR/metadata/run_status.tsv`.
+
+## Samples: biological units, technical libraries and lanes
+
+Each CSV row is one FASTQ-producing technical unit. Rows with the same
+`sample_id` belong to one biological sample and are merged before DESeq2 and
+sample-level track generation.
+
+```csv
+sample_id,biological_replicate_id,technical_replicate_id,lane_id,fastq_R1,fastq_R2,condition,strandedness,batch,description
+WT_R1,R1,T01,L001,/data/WT_R1_L001_R1.fastq.gz,/data/WT_R1_L001_R2.fastq.gz,WT,reverse,batch1,WT replicate 1
+WT_R1,R1,T01,L002,/data/WT_R1_L002_R1.fastq.gz,/data/WT_R1_L002_R2.fastq.gz,WT,reverse,batch1,WT replicate 1
+WT_R2,R2,T01,L001,/data/WT_R2_L001_R1.fastq.gz,/data/WT_R2_L001_R2.fastq.gz,WT,reverse,batch1,WT replicate 2
+```
+
+Here the first two rows are lanes of one biological sample, not two replicates.
+They are aligned independently, then their BAMs and STAR counts are consolidated
+into `WT_R1`. DESeq2 receives `WT_R1` and `WT_R2` as two biological samples.
 
 ## Workflow
 
 ```mermaid
 flowchart TD
-    A([📁 Raw FASTQ\nSE or PE]) --> B[Step 0: preflight_check.sh\ntools · R pkgs · RSeQC · genome files]
-    B --> C[Step 2: FastQC raw]
-    C --> D[Step 3: MultiQC raw]
-    A --> FQS[🧫 Step 2b: FastQ Screen\nspecies swap · mycoplasma\nMouse · Human · Zebrafish\nDrosophila · Mycoplasma]
-    FQS --> E[Step 4: TrimGalore]
-    D --> E
-    E --> F[Step 5: FastQC trimmed]
-    F --> G[Step 6: MultiQC trimmed]
-    E --> H[Step 7: STAR\n--quantMode GeneCounts]
-    H --> I[Step 8: samtools\nsort + index]
-    H --> J[Step 9: MultiQC\nalignment logs]
-    H --> K[Step 9b: collect_star_qc.sh\nSTAR summary TSV]
-
-    I --> L[⭐ Step 11: bam_to_bedgraph.R\nRsamtools + GenomicAlignments]
-    I --> M[⚙️ Step 10b: check_strand_consistency.sh\nFwd+Rev vs Total]
-    I --> N[🔬 Step 10c: run_rnaseq_qc.sh\ninfer_experiment · read_distribution\njunction_annotation · junction_saturation\ngeneBody_coverage]
-    K --> O[07_qc/star/]
-    N --> P[07_qc/rseqc/]
-    O --> Q[MultiQC RSeQC\n07_qc/multiqc/]
-    P --> Q
-
-    L --> R[⭐ deseq2_normalize.R\ncounts · SF · SF_rpm · FPKM · TPM]
-    L --> S[⭐ normalize_bedgraph.R\nSF_rpm · rtracklayer]
-    R --> S
-    S --> T[norm_bedgraph_to_bigwig.sh\nchr filter · BigWig]
-    S --> U[⭐ merge_bedgraph_replicates.R]
-    U --> V[Merged BigWigs]
-    R --> W[⭐ deseq2_de.R\nWald + apeglm/ashr LFC shrinkage\nvolcano · MA plots · annotated tables]
-    R --> X[⭐ deseq2_qc_plots.R\nPCA · heatmaps]
-    T --> Y[UCSC tracks]
-    W --> EA[⭐ deseq2_enrichment.R\nORA + GSEA\nGO · KEGG · Reactome · MSigDB Hallmarks]
-    EA --> Z([📊 Reports\nHTML · BigWigs · DE tables · enrichment plots])
-    FQS --> Z
-    X --> Z; Y --> Z; Q --> Z
-    Z --> CL[🗑️ Step 22: cleanup_intermediates\ntrimmed FASTQs · BAMs · raw bedGraphs\nsentinel-gated · optional]
-
-    style A fill:#4a90d9,color:#fff
-    style Z fill:#27ae60,color:#fff
-    style B fill:#ffe0e0,stroke:#cc0000
-    style FQS fill:#fff0e6,stroke:#e07000
-    style M fill:#ffe0e0,stroke:#cc0000
-    style N fill:#e8f4ff,stroke:#0066cc
-    style Q fill:#e8f4ff,stroke:#0066cc
-    style L fill:#fff3cd,stroke:#f0a500
-    style R fill:#fff3cd,stroke:#f0a500
-    style S fill:#fff3cd,stroke:#f0a500
-    style U fill:#fff3cd,stroke:#f0a500
-    style W fill:#fff3cd,stroke:#f0a500
-    style X fill:#fff3cd,stroke:#f0a500
-    style EA fill:#f3e8ff,stroke:#7c3aed
-    style CL fill:#f0f0f0,stroke:#888888
+    A[config.conf + lane-level samplesheet] --> B[contract validation]
+    B --> C[FastQC and FastQ Screen]
+    C --> D[Trim Galore]
+    D --> E[STAR per technical row]
+    E --> F[samtools sort and index]
+    F --> G[merge BAMs and sum STAR counts by sample_id]
+    G --> H[RSeQC and final MultiQC]
+    G --> I[strand-aware coverage]
+    I --> J[DESeq2 normalized BigWigs]
+    G --> K[DESeq2 differential expression]
+    K --> L[ORA and GSEA: GO, KEGG, Reactome, Hallmarks]
+    H --> M[self-contained HTML report]
+    J --> M
+    L --> M
+    M --> N[optional audited cleanup]
 ```
 
-> ⭐ R &nbsp;|&nbsp; ⚙️ sanity check &nbsp;|&nbsp; 🔬 RSeQC &nbsp;|&nbsp; 🧫 FastQ Screen &nbsp;|&nbsp; 🗑️ cleanup &nbsp;|&nbsp; other = Bash
+## Main capabilities
 
----
+- Single-end and paired-end libraries.
+- Unstranded, forward-stranded and reverse-stranded protocols.
+- Human and mouse reference configurations.
+- Multiple lanes and technical libraries per biological sample.
+- FastQC, FastQ Screen, MultiQC, STAR QC and RSeQC, including gene-body coverage.
+- Biological-sample BAMs and raw/DESeq2-normalized, strand-aware BigWigs.
+- DESeq2 models and contrast-level tables, MA plots and volcano plots.
+- ORA and ranked GSEA against GO BP/MF/CC, KEGG, Reactome and Hallmarks.
+- Condition-level merged tracks (configurable).
+- UCSC descriptor generation when a real `UCSC_BASE_URL` is supplied.
+- Checkpointed restart, chronological logging, status and checksummed provenance.
+- Optional post-success cleanup of regenerable large intermediates.
 
-## Features
+## Configuration model
 
-- **SE and PE** support; choice set in `config.conf`
-- **Human and mouse** in one config — switch with `SPECIES=`
-- **FastQ Screen (Step 2b)** — screens raw reads against Mouse, Human, Zebrafish, Drosophila, and Mycoplasma reference panels before trimming; detects species swap and mycoplasma contamination; results integrated into final MultiQC report
-- **Strand-aware BigWig tracks** (forward / reverse) or unstranded
-- **UCSC-compatible BigWigs** — canonical chromosomes only (UCSC or Ensembl naming)
-- **Preflight check** — validates tools, R packages, RSeQC binaries, FastQ Screen conf, BED file, and genome paths before the run starts
-- **STAR alignment summary TSV** from `Log.final.out` — included in MultiQC
-- **RSeQC QC module** — infer_experiment, read_distribution, junction_annotation, junction_saturation, geneBody_coverage; integrated into MultiQC
-- **Strand consistency check** — hard fail if Fwd+Rev diverges from Total by more than the configured tolerance
-- **DESeq2 SF_rpm normalization** (size factor × mean-RPM anchor)
-- **DESeq2 DE** — Wald test with apeglm LFC shrinkage (ashr fallback); unshrunken and shrunken volcano and MA plots; annotated count tables
-- **Gene set enrichment analysis** (Step 21) — ORA and GSEA across GO BP/MF/CC, KEGG, Reactome, and MSigDB Hallmarks; per-contrast TSV tables and PDF/PNG plots
-- **Replicate merging** — GRanges disjoin mean BigWigs
-- **HTML pipeline report** — STAR summary, size factors, infer_experiment table, output index
-- **Executable smoke test** — pre-flight checks before the full run
-- **Post-run storage cleanup** (Step 22) — automatically removes large regenerable intermediate files (trimmed FASTQs, BAMs, raw bedGraphs) after confirmed pipeline success; sentinel-gated, dry-run mode available; off by default
-
----
-
-## Quick start
+All project settings, including `SAMPLESHEET`, are stored in one `config.conf`.
+Relative paths are resolved from the config file's directory. The only launch
+argument is:
 
 ```bash
-git clone https://github.com/MichalGd/rnaseq2tracksP.git && cd rnaseq2tracksP
-conda env create -f environment.yml && conda activate rnaseq2tracks
-
-cp config/config_template.conf  config/config.conf   # fill all paths
-cp config/samplesheet_template_PE.csv config/samplesheet.csv
-cp config/contrasts_template.csv config/contrasts.csv
-
-bash tests/run_smoke_test.sh config/config.conf      # pre-flight check
-./scripts/rnaseq2tracks.sh   config/config.conf
+rnaseq2tracks --config /absolute/path/to/config.conf
 ```
 
----
+Important resource settings are `MAX_JOBS`, `STAR_THREADS`,
+`SAMTOOLS_THREADS`, `FASTQC_THREADS` and `FASTQSCREEN_THREADS`. Approximate
+maximum STAR CPU demand is `MAX_JOBS × STAR_THREADS`; configure it within the
+server's CPU and memory budget.
 
-## Input FASTQ naming (PE)
+## Outputs to inspect first
 
-```
-KO_12_1_1__ERR14875937_1.fq.gz   ← R1
-KO_12_1_2__ERR14875937_2.fq.gz   ← R2
-```
-
-`sample_id = KO_12_1` in samplesheet.
-
----
-
-## Samplesheet columns
-
-| Column | PE | SE | Values |
-|--------|----|----|--------|
-| `sample_id` | ✓ | ✓ | unique identifier, no spaces |
-| `fastq_R1` | ✓ | ✓ | absolute path to R1 (or only) FASTQ |
-| `fastq_R2` | ✓ | — | absolute path to R2 FASTQ |
-| `condition` | ✓ | ✓ | group label used in DESeq2 design |
-| `replicate` | ✓ | ✓ | integer replicate number |
-| `strandedness` | ✓ | ✓ | `forward`, `reverse`, or `unstranded` |
-
-See `examples/samplesheet_example_PE.csv` and `examples/samplesheet_example_SE.csv`.
-
----
-
-## Contrasts file
-
-```csv
-contrast_id,numerator,denominator
-KO_vs_WT,KO,WT
-```
-
-- `contrast_id` — used as a file name prefix for all DE and enrichment outputs
-- `numerator` — condition label for the numerator (treatment)
-- `denominator` — condition label for the denominator (reference)
-
-See `examples/contrasts_example.csv`.
-
----
-
-## Key configuration parameters
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `SPECIES` | — | `human` or `mouse` |
-| `LIBRARY_LAYOUT` | — | `SE` or `PE` |
-| `DE_LFC_THRESHOLD` | `1` | \|log2FC\| threshold for DE calling |
-| `DE_PADJ_THRESHOLD` | `0.05` | adjusted p-value threshold for DE calling |
-| `LFC_THRESHOLD` | `1` | \|log2FC\| threshold for ORA gene list in enrichment |
-| `PADJ_THRESHOLD` | `0.05` | adjusted p-value threshold for ORA gene list in enrichment |
-| `ENRICHMENT_MINGS` | `10` | minimum gene set size for enrichment |
-| `ENRICHMENT_MAXGS` | `500` | maximum gene set size for enrichment |
-| `FASTQSCREEN_CONF` | `config/fastq_screen.conf` | path to FastQ Screen database config |
-| `FASTQSCREEN_THREADS` | `4` | bowtie2 threads per sample for FastQ Screen |
-| `FASTQSCREEN_SUBSET` | `200000` | reads sampled per file (0 = all) |
-| `CLEANUP_INTERMEDIATES` | `0` | `1` = remove large intermediate files after successful run |
-| `CLEANUP_DRYRUN` | `0` | `1` = preview mode — print what would be deleted, no deletion |
-| `CLEANUP_ALLCHR_BEDGRAPH` | `0` | `1` = also remove `bigwig/*.all_chromosomes.bedGraph.gz` |
-| `MAX_JOBS` | `8` | maximum parallel background jobs |
-| `FORCE_RERUN` | `0` | set to `1` to force rerun of completed steps |
-
-Full parameter reference: `config/config_template.conf`.
-
----
-
-## Gene set enrichment analysis (Step 21)
-
-Step 21 runs after differential expression (Step 16) and uses the DE results as input.
-
-**Input:** `analysis/DE/<contrast_id>_DE_results.tsv` — shrunken LFC results from `deseq2_de.R`
-
-**Methods:**
-- **ORA** (Over-Representation Analysis) — tests whether significantly DE genes (filtered by `PADJ_THRESHOLD` and `LFC_THRESHOLD`) are enriched in a gene set, using the full expressed gene list as background
-- **GSEA** (Gene Set Enrichment Analysis) — uses all expressed genes ranked by `sign(LFC) × −log10(padj)`, which is robust to LFC shrinkage and avoids tied rankings
-
-**Databases covered:**
-| Database | ORA | GSEA |
-|----------|-----|------|
-| GO Biological Process | ✓ | ✓ |
-| GO Molecular Function | ✓ | ✓ |
-| GO Cellular Component | ✓ | — |
-| KEGG | ✓ | ✓ |
-| Reactome | ✓ | ✓ |
-| MSigDB Hallmarks | — | ✓ (via fgsea) |
-
-**Output:** `analysis/enrichment/<contrast_id>/`
-- `<contrast_id>_ORA_<DB>.tsv` — ORA result table
-- `<contrast_id>_GSEA_<DB>.tsv` — GSEA result table
-- `<contrast_id>_ORA_<DB>_dotplot.pdf/.png` — dot plot
-- `<contrast_id>_ORA_<DB>_barplot.pdf/.png` — bar plot
-- `<contrast_id>_ORA_<DB>_cnetplot.pdf/.png` — concept network plot (ORA only)
-- `<contrast_id>_GSEA_Hallmarks_barplot.pdf/.png` — NES bar plot for significant Hallmarks
-
-Completion is tracked by `analysis/enrichment/.enrichment_done`. Delete this file to rerun Step 21 without rerunning the full pipeline.
-
-See [`docs/gene_set_enrichment.md`](docs/gene_set_enrichment.md) for full details on methods, thresholds, and output interpretation.
-
----
-
-## Post-run storage cleanup (Step 22)
-
-After a successful run, large intermediate files that can be fully regenerated from raw FASTQs can be removed to free disk space. Cleanup is **disabled by default** and is gated on three pipeline completion sentinels — no files are deleted from an incomplete run.
-
-**Files removed** (all regenerable from raw FASTQs + pipeline scripts):
-
-| Directory | Pattern |
+| Output | Purpose |
 |---|---|
-| `trimmedFastq/` | `*_trimmed.fq.gz`, `*_val_[12].fq.gz` |
-| `STARalignments/` | `*_Aligned.out.bam`, `*_SJ.out.tab` |
-| `bams/` | `*_sortedS.bam`, `*_sortedS.bam.bai` |
-| `bedGraph/raw/` | `*.bedGraph.gz` (un-normalised) |
-| `bedGraph/merged/` | `*.bedGraph` (uncompressed only) |
-| `bigwig/` *(optional)* | `*.all_chromosomes.bedGraph.gz` |
-
-**Enable in `config/config.conf`:**
-
-```bash
-CLEANUP_INTERMEDIATES=1    # enable cleanup
-CLEANUP_DRYRUN=1           # start with dry-run to preview what will be deleted
-CLEANUP_ALLCHR_BEDGRAPH=0  # optionally also remove all_chromosomes.bedGraph.gz
-```
-
-**One-shot cleanup for an already-completed run:**
-
-```bash
-# Dry-run first
-bash scripts/cleanup_existing_run.sh /path/to/output/ --dry-run
-
-# Live cleanup
-bash scripts/cleanup_existing_run.sh /path/to/output/
-```
-
-See [`docs/CLEANUP.md`](docs/CLEANUP.md) for full details, sentinel logic, and regeneration instructions.
-
----
-
-## Output directory structure
-
-```
-<OUTDIR>/
-├── fastQC/          raw and trimmed FastQC reports
-├── fastQScreen/     FastQ Screen per-sample reports (species + mycoplasma)
-├── multiQC/         MultiQC reports (raw, trimmed, alignments, final)
-├── trimmedFastq/    TrimGalore output                          [CLEANUP]
-├── STARalignments/  raw BAM files from STAR                   [CLEANUP]
-├── STARlogs/        STAR Log.final.out files
-├── STARgeneCounts/  STAR gene count tables                    ← kept (DESeq2 input)
-├── bams/            sorted and indexed BAM files              [CLEANUP]
-├── bedGraph/
-│   ├── raw/         per-sample raw bedGraphs                  [CLEANUP]
-│   ├── normalized/  per-sample SF_rpm-normalized bedGraphs    ← kept
-│   └── merged/      per-condition merged bedGraphs            [CLEANUP uncompressed]
-├── bigwig/          per-sample and per-condition BigWig files ← kept
-├── 07_qc/
-│   ├── star/        STAR alignment summary TSV
-│   ├── rseqc/       RSeQC outputs per sample
-│   └── multiqc/     RSeQC MultiQC report
-├── analysis/
-│   ├── counts/      dds.RData, raw_counts.tsv, normalized_counts.tsv, size_factors.tsv
-│   ├── DE/          per-contrast DE results TSV, significant TSV, volcano and MA plots
-│   ├── tables/      per-contrast annotated count tables (gene annotation + counts + DE)
-│   ├── figures/     PCA, sample clustering, heatmaps
-│   └── enrichment/  per-contrast ORA and GSEA results (TSV tables and plots)
-└── reports/         HTML pipeline report, UCSC track hub file
-```
-
-Full output reference with file-level descriptions: [`docs/OUTPUTS.md`](docs/OUTPUTS.md).
-
----
-
-## Rerunning individual steps
-
-Steps use sentinel files to skip completed work. To rerun specific steps without rerunning the full pipeline:
-
-```bash
-# Rerun FastQ Screen (Step 2b) only
-rm -f fastQScreen/*
-
-# Rerun DE (Step 16) and enrichment (Step 21) only
-rm -f analysis/DE/*_DE_results.tsv
-rm -f analysis/enrichment/.enrichment_done
-
-DE_LFC_THRESHOLD=0 DE_PADJ_THRESHOLD=0.05 \
-PADJ_THRESHOLD=0.05 LFC_THRESHOLD=0 \
-./scripts/rnaseq2tracks.sh config/config.conf
-
-# Rerun enrichment only (Step 21)
-rm -f analysis/enrichment/.enrichment_done
-./scripts/rnaseq2tracks.sh config/config.conf
-
-# Force rerun of all steps
-FORCE_RERUN=1 ./scripts/rnaseq2tracks.sh config/config.conf
-
-# Clean up intermediates from a completed run
-bash scripts/cleanup_existing_run.sh $OUTDIR --dry-run   # preview first
-bash scripts/cleanup_existing_run.sh $OUTDIR
-```
-
----
-
-## Requirements
-
-All dependencies are managed via conda:
-
-```bash
-conda env create -f environment.yml
-conda activate rnaseq2tracks
-```
-
-Additionally required (not available via conda):
-- **UCSC kentutils** — `bedGraphToBigWig`; set `KENTUTILS_DIR` in `config.conf`
-- **Genome files** — STAR index, GTF, chrom.sizes, RSeQC BED12; paths set in `config.conf`
-- **FastQ Screen bowtie2 indexes** — built once per species panel; paths set in `config/fastq_screen.conf`
-
-See [`docs/INSTALLATION.md`](docs/INSTALLATION.md) for detailed setup instructions.
-
----
+| `reports/pipeline_report.html` | integrated final report |
+| `multiQC/final/multiQC_final.html` | detailed sequencing and alignment QC |
+| `07_qc/rseqc/genebody/` | RNA integrity and gene-body bias |
+| `07_qc/star/star_alignment_summary.tsv` | lane-level STAR mapping summary |
+| `metadata/technical_merge_audit.tsv` | lanes merged into each biological sample |
+| `analysis/DE/` | DE tables, MA and volcano plots |
+| `analysis/enrichment/` | ORA/GSEA tables and figures |
+| `bigwig/` | sample and condition browser tracks |
+| `logs/rnaseq2tracks.log` | complete chronological log |
+| `metadata/run_provenance.tsv` | final version, inputs and hashes |
 
 ## Documentation
 
-| Document | Description |
-|----------|-------------|
-| [`docs/INSTALLATION.md`](docs/INSTALLATION.md) | Conda setup, genome file preparation, RSeQC BED generation |
-| [`docs/USAGE.md`](docs/USAGE.md) | Detailed usage, config parameters, and rerun instructions |
-| [`docs/OUTPUTS.md`](docs/OUTPUTS.md) | Full description of all output files and directories |
-| [`docs/WORKFLOW.md`](docs/WORKFLOW.md) | Step-by-step pipeline description (Steps 0–22) |
-| [`docs/CLEANUP.md`](docs/CLEANUP.md) | Post-run storage cleanup — what is removed, sentinels, regeneration |
-| [`docs/RSEQC.md`](docs/RSEQC.md) | RSeQC module documentation and metric interpretation |
-| [`docs/SCRIPTS.md`](docs/SCRIPTS.md) | Description of all scripts and R modules |
-| [`docs/FASTQSCREEN.md`](docs/FASTQSCREEN.md) | FastQ Screen — species swap & mycoplasma contamination check |
-| [`docs/gene_set_enrichment.md`](docs/gene_set_enrichment.md) | Gene set enrichment analysis (ORA, GSEA, Hallmarks) |
-| [`docs/THRESHOLDS.md`](docs/THRESHOLDS.md) | Statistical thresholds (DEG and GSEA) |
-| [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md) | Known issues and workarounds |
+- [Documentation index](docs/README.md)
+- [Quick start](docs/QUICK_START.md)
+- [Samplesheet and technical replicates](docs/SAMPLESHEET.md)
+- [Configuration](docs/CONFIGURATION.md)
+- [Workflow and methods](docs/WORKFLOW.md)
+- [QC interpretation](docs/QC.md)
+- [Differential expression and enrichment](docs/ANALYSIS.md)
+- [Outputs](docs/OUTPUTS.md)
+- [Logging, resume and cleanup](docs/OPERATIONS.md)
+- [Server installation](docs/INSTALLATION.md)
+- [Migration and repository rename](docs/MIGRATION.md)
+- [Limitations](docs/LIMITATIONS.md)
+- [Architecture comparison and backport rationale](docs/ARCHITECTURE_COMPARISON.md)
 
----
+## Release installation
 
-## Citation
+An administrator installs a tagged release once. The installer builds a pinned,
+read-only environment and promotes a stable launcher:
 
-If you use this pipeline, please cite:
-
+```bash
+bash scripts/bash/install_release.sh --tag v6.0.0-alpha.1
 ```
-Gdula, M. (2026). rnaseq2tracks (v5.1). GitHub. https://github.com/MichalGd/rnaseq2tracksP
-```
 
-See `CITATION.cff` for full citation metadata.
+This produces a self-contained launcher such as
+`/opt/conda_envs/bin/rnaseq2tracks-6.0.0-alpha.1` and the stable
+`/opt/conda_envs/bin/rnaseq2tracks`. Users do not activate Conda.
 
-The enrichment analysis module uses the following tools — please cite them in published work:
-- **clusterProfiler**: Wu et al. (2021) *The Innovation* 2(3):100141
-- **ReactomePA**: Yu & He (2016) *Mol BioSyst* 12(2):477–479
-- **fgsea**: Korotkevich et al. (2021) *bioRxiv*
-- **DESeq2**: Love et al. (2014) *Genome Biology* 15:550
-- **ashr** (LFC shrinkage fallback): Stephens (2016) *Biostatistics* 18(2)
+## Naming migration
 
----
+This project was formerly published as `rnaseq2tracksP`. Code, launch examples,
+environment names, citation metadata and documentation now use `rnaseq2tracks`.
+The GitHub repository itself must be renamed in GitHub **Settings → General →
+Repository name**. Existing GitHub URLs normally redirect, but local clones should
+update `origin`; see [MIGRATION.md](docs/MIGRATION.md).
 
-## License
+## Citation and license
 
-MIT — see `LICENSE`.
+Citation metadata are in [CITATION.cff](CITATION.cff). The workflow is released
+under the [MIT License](LICENSE).

@@ -1,3 +1,6 @@
-sample_id,fastq_R1,condition,replicate,strandedness
-KO_12_1,/data/fastq/KO_12_1_trimmed.fq.gz,KO,1,reverse
-WT_12_1,/data/fastq/WT_12_1_trimmed.fq.gz,WT,1,reverse
+sample_id,biological_replicate_id,technical_replicate_id,lane_id,fastq_R1,condition,strandedness,batch,description
+WT_R1,R1,T01,L001,/data/WT_R1_L001.fastq.gz,WT,reverse,batch1,WT replicate 1
+WT_R1,R1,T01,L002,/data/WT_R1_L002.fastq.gz,WT,reverse,batch1,WT replicate 1
+WT_R2,R2,T01,L001,/data/WT_R2_L001.fastq.gz,WT,reverse,batch1,WT replicate 2
+KO_R1,R1,T01,L001,/data/KO_R1_L001.fastq.gz,KO,reverse,batch1,KO replicate 1
+KO_R2,R2,T01,L001,/data/KO_R2_L001.fastq.gz,KO,reverse,batch1,KO replicate 2

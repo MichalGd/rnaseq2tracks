@@ -2,7 +2,16 @@
 # ORIGIN: NEW v3 / UPDATED v5 — adds enrichment R package checks
 set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CONFIG="${1:-$REPO/config/config.conf}"
+if [[ "${1:-}" == "--config" ]]; then
+  [[ $# -ge 2 ]] || { echo "--config requires a file" >&2; exit 2; }
+  CONFIG="$2"
+elif [[ $# -gt 0 ]]; then
+  CONFIG="$1"
+else
+  CONFIG="$REPO/config/config.conf"
+fi
+CONFIG="$(realpath "$CONFIG")"
+CONFIG_DIR="$(dirname "$CONFIG")"
 PASS=0; FAIL=0; WARN=0
 ok()   { echo "  [PASS] $*"; PASS=$((PASS+1)); }
 fail() { echo "  [FAIL] $*"; FAIL=$((FAIL+1)); }
@@ -64,9 +73,17 @@ else warn "config.conf not found at $CONFIG"; fi
 
 section "8. Samplesheet"
 SS="${SAMPLESHEET:-$REPO/config/samplesheet.csv}"
+[[ "$SS" == /* ]] || SS="$CONFIG_DIR/$SS"
 if [[ -f "$SS" ]]; then
   N=$(grep -vc '^[[:space:]]*#\|^sample_id' "$SS" || true)
-  ok "$N data rows in $SS"
+  ok "$N technical-library/lane rows in $SS"
+  if "${PYTHON_BIN:-python}" "$REPO/scripts/prepare_samplesheet.py" \
+      --samplesheet "$SS" --layout "${LIBRARY_LAYOUT:-PE}" \
+      --check-fastq --validate-only; then
+    ok "samplesheet hierarchy"
+  else
+    fail "samplesheet hierarchy"
+  fi
 else warn "Samplesheet not found: $SS"; fi
 
 section "9. Contrasts"

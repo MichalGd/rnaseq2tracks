@@ -6,6 +6,8 @@ log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
 # ORIGIN: NEW v4.0 — preflight dependency and file check
 set -euo pipefail
 CONFIG="$1"
+CONFIG="$(realpath "$CONFIG")"
+CONFIG_DIR="$(dirname "$CONFIG")"
 
 # ── Sanitize CRLF before sourcing ─────────────────────────────────────────────
 _sanitize_crlf() {
@@ -19,6 +21,15 @@ _sanitize_crlf() {
 _sanitize_crlf "$CONFIG" "config"
 # SAMPLESHEET and CONTRASTS are sourced from config, so source first then sanitize
 source "$CONFIG"
+resolve_path() {
+    local value="$1"
+    [[ "$value" == "~/"* ]] && value="$HOME/${value#~/}"
+    [[ "$value" == /* ]] || value="$CONFIG_DIR/$value"
+    realpath -m "$value"
+}
+[[ -n "${SAMPLESHEET:-}" ]] && SAMPLESHEET="$(resolve_path "$SAMPLESHEET")"
+[[ -n "${CONTRASTS:-}" ]] && CONTRASTS="$(resolve_path "$CONTRASTS")"
+[[ -n "${FASTQSCREEN_CONF:-}" ]] && FASTQSCREEN_CONF="$(resolve_path "$FASTQSCREEN_CONF")"
 [[ -n "${SAMPLESHEET:-}" ]] && _sanitize_crlf "$SAMPLESHEET" "samplesheet"
 [[ -n "${CONTRASTS:-}"   ]] && _sanitize_crlf "$CONTRASTS"   "contrasts"
 
@@ -78,12 +89,10 @@ esac
 [[ -f "$CS"  ]] && ok "chrom.sizes: $CS" || fail "chrom.sizes missing: $CS"
 
 section "7. Samplesheet"
-[[ "${SAMPLESHEET:-}" != /* ]] && warn "SAMPLESHEET is a relative path — use absolute paths in config"
-[[ "${CONTRASTS:-}"   != /* ]] && warn "CONTRASTS is a relative path — use absolute paths in config"
 SS="${SAMPLESHEET:-config/samplesheet.csv}"
 if [[ -f "$SS" ]]; then
   N=$(grep -vc '^[[:space:]]*#\|^sample_id' "$SS" || true)
-  ok "Samplesheet: $N samples"
+  ok "Samplesheet: $N technical-library/lane rows"
 else fail "Samplesheet not found: $SS"; fi
 
 section "8. Input file format"
@@ -98,24 +107,37 @@ _check_header() {
     echo "$hdr" | grep -qF "$1" && ok "$label columns OK"
 }
 _check_header "${SAMPLESHEET:-}" "samplesheet" \
-    sample_id fastq_R1 condition replicate strandedness
+    sample_id biological_replicate_id technical_replicate_id lane_id \
+    fastq_R1 condition strandedness
+[[ "${LIBRARY_LAYOUT:-}" == "PE" ]] && \
+  _check_header "${SAMPLESHEET:-}" "paired-end samplesheet" fastq_R2
 [[ -n "${CONTRASTS:-}" ]] && _check_header "${CONTRASTS:-}" "contrasts" \
     contrast_id numerator denominator
 
+if "${PYTHON_BIN:-python}" "$REPO/scripts/prepare_samplesheet.py" \
+    --samplesheet "$SAMPLESHEET" --layout "${LIBRARY_LAYOUT:-PE}" \
+    --check-fastq --validate-only; then
+    ok "Samplesheet hierarchy and FASTQ assignments are valid"
+else
+    fail "Samplesheet hierarchy is invalid"
+fi
+
 # Contrast levels must exist in samplesheet conditions
 if [[ -n "${CONTRASTS:-}" && -f "${CONTRASTS:-}" && -f "${SAMPLESHEET:-}" ]]; then
-    python3 - <<PYCHECK
+    "${PYTHON_BIN:-python}" - <<PYCHECK
 import csv, sys
 conds = set()
-with open("${SAMPLESHEET}") as f:
-    for r in csv.DictReader(f): conds.add(r["condition"].strip())
+def rows(path):
+    with open(path, encoding="utf-8-sig") as handle:
+        return csv.DictReader(line for line in handle
+                              if line.strip() and not line.lstrip().startswith("#"))
+for r in rows("${SAMPLESHEET}"): conds.add(r["condition"].strip())
 errs = []
-with open("${CONTRASTS}") as f:
-    for r in csv.DictReader(f):
-        for side in ("numerator","denominator"):
-            v = r[side].strip()
-            if v not in conds:
-                errs.append(f"contrast '{r['contrast_id']}': {side} '{v}' not in samplesheet")
+for r in rows("${CONTRASTS}"):
+    for side in ("numerator","denominator"):
+        v = r[side].strip()
+        if v not in conds:
+            errs.append(f"contrast '{r['contrast_id']}': {side} '{v}' not in samplesheet")
 if errs:
     for e in errs: print(f"  [FAIL] {e}")
     sys.exit(1)
@@ -125,16 +147,11 @@ PYCHECK
     [[ $? -ne 0 ]] && FAIL=$((FAIL+1))
 fi
 
-echo ""
-echo "════════════════════════════════════════"
-echo "Preflight: $FAIL FAIL  $WARN WARN"
-echo "════════════════════════════════════════"
-[[ $FAIL -eq 0 ]] || { echo "Fix FAIL items before running." >&2; exit 1; }
-echo "Preflight passed."
-
 # ── FastQ Screen (Step 2b — optional) ────────────────────────────────────────
 FASTQSCREEN_CONF="${FASTQSCREEN_CONF:-$REPO/config/fastq_screen.conf}"
-if command -v fastq_screen &>/dev/null; then
+if [[ "${RUN_FASTQSCREEN:-true}" != "true" ]]; then
+    log "SKIP fastq_screen (RUN_FASTQSCREEN=false)"
+elif command -v fastq_screen &>/dev/null; then
     log "OK  fastq_screen: $(fastq_screen --version 2>&1 | head -1)"
     if [[ -f "$FASTQSCREEN_CONF" ]]; then
         log "OK  fastq_screen.conf: $FASTQSCREEN_CONF"
@@ -145,12 +162,19 @@ if command -v fastq_screen &>/dev/null; then
             if ls "${db_path}".1.bt2 &>/dev/null || ls "${db_path}".1.bt2l &>/dev/null; then
                 log "OK  bowtie2 index: $db_path"
             else
-                log "WARN missing bowtie2 index: $db_path (Step 2b will skip this database)"
+                fail "missing FastQ Screen Bowtie2 index: $db_path"
             fi
         done < "$FASTQSCREEN_CONF"
-    else
-        log "WARN fastq_screen.conf not found: $FASTQSCREEN_CONF (Step 2b will be skipped)"
+else
+        fail "fastq_screen.conf not found: $FASTQSCREEN_CONF"
     fi
 else
-    log "WARN fastq_screen not in PATH (Step 2b will be skipped)"
+    fail "fastq_screen not in PATH while RUN_FASTQSCREEN=true"
 fi
+
+echo ""
+echo "════════════════════════════════════════"
+echo "Preflight: $FAIL FAIL  $WARN WARN"
+echo "════════════════════════════════════════"
+[[ $FAIL -eq 0 ]] || { echo "Fix FAIL items before running." >&2; exit 1; }
+echo "Preflight passed."

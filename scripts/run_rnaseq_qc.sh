@@ -88,7 +88,7 @@ for sid in "${SID[@]}"; do
   [[ -f "$BAM" ]] || { echo "  [WARN] BAM missing: $BAM" >&2; continue; }
   submit "RSEQC geneBody_coverage.py -i '$BAM' -r '$BED' \
     -o '$OUTDIR/rseqc/genebody/$sid' \
-    > '$OUTDIR/rseqc/genebody/${sid}_geneBody_coverage.log' 2>&1 || true"
+    > '$OUTDIR/rseqc/genebody/${sid}_geneBody_coverage.log' 2>&1"
 done
 wait_all
 echo "[run_rnaseq_qc.sh] Done. Outputs: $OUTDIR/rseqc/"
