@@ -2,8 +2,8 @@ name: rnaseq2tracks
 channels:
 - bioconda
 - conda-forge
-- defaults
 dependencies:
+- python=3.11
 # ── Alignment & processing ────────────────────────────────────────────────
 - star>=2.7.10
 - samtools>=1.17

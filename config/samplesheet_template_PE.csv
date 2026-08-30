@@ -1,3 +1,4 @@
-# sample_id,fastq_R1,fastq_R2,condition,replicate,strandedness
-# strandedness: unstranded | forward | reverse
-# replicate: integer 1,2,3...
+sample_id,biological_replicate_id,technical_replicate_id,lane_id,fastq_R1,fastq_R2,condition,strandedness,batch,description
+control_R1,R1,T01,L001,/data/control_R1_T01_L001_R1.fastq.gz,/data/control_R1_T01_L001_R2.fastq.gz,control,reverse,batch1,control biological replicate 1
+control_R1,R1,T01,L002,/data/control_R1_T01_L002_R1.fastq.gz,/data/control_R1_T01_L002_R2.fastq.gz,control,reverse,batch1,control biological replicate 1
+treated_R1,R1,T01,L001,/data/treated_R1_T01_L001_R1.fastq.gz,/data/treated_R1_T01_L001_R2.fastq.gz,treated,reverse,batch1,treated biological replicate 1

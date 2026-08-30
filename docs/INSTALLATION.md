@@ -1,94 +1,49 @@
-# Installation
+# Shared server installation
 
-## Conda (recommended)
+## Release model
 
-```bash
-conda env create -f environment.yml
-conda activate rnaseq2tracks
-```
+Install a signed/approved Git tag into a versioned Conda/Mamba prefix, write a
+self-contained launcher and promote a stable symlink. Users then run
+`rnaseq2tracks --config ...` without activating Conda.
 
-This installs all tools and R packages including the enrichment analysis dependencies (clusterProfiler, ReactomePA, fgsea, msigdbr, org.Hs.eg.db, org.Mm.eg.db).
-
-## Verify installation
+Prerequisites are a writable environment parent, Mamba, Git and enough storage.
+From a checked-out release source:
 
 ```bash
-bash tests/run_smoke_test.sh config/config.conf
+bash scripts/bash/install_release.sh --tag v6.0.0-alpha.1
 ```
 
-## RSeQC
+Defaults:
 
-Included in `environment.yml`. Verify:
-```bash
-infer_experiment.py --version
-read_distribution.py --version
-```
+- environment parent: `/opt/conda_envs`
+- launcher directory: `/opt/conda_envs/bin`
+- repository after rename: `https://github.com/MichalGd/rnaseq2tracks.git`
+- Mamba: `/opt/miniconda/condabin/mamba`
 
-If installed elsewhere, set `RSEQC_BIN_DIR` in `config.conf`.
+Override with `--repo`, `--env-parent`, `--bin-dir` or `--mamba`. Use
+`--no-promote` to test without changing the stable launcher.
 
-## RSeQC BED12 annotation
+The installer checks tag/version agreement, builds the environment, copies the
+workflow, runs Python tests, Bash syntax and R parsing, exports an explicit lock,
+freezes the versioned environment read-only and only then promotes the stable
+launcher.
 
-### Option 1: Download prebuilt
-
-```bash
-# hg38 (GENCODE v42)
-wget https://sourceforge.net/projects/rseqc/files/BED/Human_Homo_sapiens/hg38_GENCODE_V42_Comprehensive.bed.gz
-gunzip hg38_GENCODE_V42_Comprehensive.bed.gz
-
-# mm39
-wget https://sourceforge.net/projects/rseqc/files/BED/Mouse_Mus_musculus/mm39_GENCODE_M31_Comprehensive.bed.gz
-gunzip mm39_GENCODE_M31_Comprehensive.bed.gz
-```
-
-### Option 2: Generate from GTF
+## Clean-shell validation
 
 ```bash
-conda install -c bioconda ucsc-gtftogenepred ucsc-genepredtobed
-gtfToGenePred annotation.gtf annotation.genePred
-genePredToBed annotation.genePred annotation.bed
+env -i HOME="$HOME" USER="$USER" PATH="/usr/local/bin:/usr/bin:/bin" \
+  bash --noprofile --norc -c '
+    command -v rnaseq2tracks
+    rnaseq2tracks --version
+    rnaseq2tracks --help
+  '
 ```
 
-Set in `config.conf`:
-```bash
-RSEQC_BED_HUMAN="/path/to/hg38_GENCODE_V42_Comprehensive.bed"
-RSEQC_BED_MOUSE="/path/to/mm39_GENCODE_M31_Comprehensive.bed"
-```
+Site-specific STAR indices, GTFs, chromosome sizes, RSeQC BEDs, FastQ Screen
+indices and Kent utilities remain external reference resources and belong in the
+project config. They are not silently downloaded by an analysis run.
 
-## STAR index
+## Rollback
 
-```bash
-STAR --runMode genomeGenerate \
-  --genomeDir /path/to/star_index \
-  --genomeFastaFiles /path/to/genome.fa \
-  --sjdbGTFfile /path/to/annotation.gtf \
-  --sjdbOverhang 149 \
-  --runThreadN 16
-```
-
-`sjdbOverhang` should be set to read length − 1.
-
-## Chromosome sizes
-
-```bash
-fetchChromSizes hg38 > hg38.chrom.sizes
-fetchChromSizes mm39 > mm39.chrom.sizes
-```
-
-Or generate from genome FASTA:
-```bash
-samtools faidx genome.fa
-cut -f1,2 genome.fa.fai > genome.chrom.sizes
-```
-
-## UCSC kentutils
-
-`bedGraphToBigWig` is not available via conda. Download from:
-```
-https://hgdownload.soe.ucsc.edu/admin/exe/linux.x86_64/
-```
-
-```bash
-wget https://hgdownload.soe.ucsc.edu/admin/exe/linux.x86_64/bedGraphToBigWig
-chmod +x bedGraphToBigWig
-```
-
-Set `KENTUTILS_DIR` in `config.conf` to the directory containing the binary.
+Versioned launchers remain independent. Repoint the stable symlink atomically to
+the previous tested launcher; never modify an immutable environment in place.

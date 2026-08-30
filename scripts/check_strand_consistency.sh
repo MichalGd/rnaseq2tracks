@@ -11,11 +11,29 @@ set -euo pipefail
 SS="$1"; BAMDIR="$2"; LAYOUT="$3"; TOL="${4:-5}"; MAX_JOBS="${5:-8}"
 
 declare -a SID STRAND
-while IFS=',' read -r f1 f2 f3 f4 f5 f6 _rest; do
-  [[ "$f1" =~ ^[[:space:]]*# || "$f1" == "sample_id" ]] && continue
-  SID+=("$f1")
-  [[ "$LAYOUT" == "PE" ]] && STRAND+=("$f6") || STRAND+=("$f5")
-done < <(grep -v '^[[:space:]]*#' "$SS")
+# Read named CSV columns instead of relying on their position. The internal
+# biological-sample sheet contains additional replicate and descriptive fields,
+# and future optional columns must not silently change the strandedness value.
+while IFS=$'\t' read -r sid strand; do
+  SID+=("$sid")
+  STRAND+=("$strand")
+done < <("${PYTHON_BIN:-python}" - "$SS" <<'PY'
+import csv
+import sys
+
+with open(sys.argv[1], encoding="utf-8-sig", newline="") as handle:
+    rows = csv.DictReader(
+        line for line in handle
+        if line.strip() and not line.lstrip().startswith("#")
+    )
+    required = {"sample_id", "strandedness"}
+    missing = required.difference(rows.fieldnames or ())
+    if missing:
+        raise SystemExit("samplesheet missing column(s): " + ", ".join(sorted(missing)))
+    for row in rows:
+        print(f"{row['sample_id'].strip()}\t{row['strandedness'].strip()}")
+PY
+)
 
 TMPDIR_RESULTS=$(mktemp -d)
 trap 'rm -rf "$TMPDIR_RESULTS"' EXIT

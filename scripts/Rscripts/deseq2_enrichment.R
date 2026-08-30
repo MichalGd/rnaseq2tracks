@@ -254,8 +254,7 @@ for (i in seq_len(nrow(contrasts))) {
       enrichKEGG(gene=sig_genes, universe=bg_genes,
                  organism=kegg_org,
                  minGSSize=opt$minGS, maxGSSize=opt$maxGS,
-                 pAdjustMethod="BH", pvalueCutoff=0.05,
-                 ),
+                 pAdjustMethod="BH", pvalueCutoff=0.05),
       error=function(e) { message("    KEGG ORA error: ", conditionMessage(e)); NULL }
     )
     if (!is.null(ora_kegg)) {

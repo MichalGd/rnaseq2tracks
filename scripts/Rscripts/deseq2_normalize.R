@@ -39,6 +39,13 @@ coldata <- data.frame(
   replicate   = ss$replicate,
   stringsAsFactors = FALSE
 )
+for (field in c("biological_replicate_id", "batch")) {
+  if (field %in% names(ss) && any(nzchar(ss[[field]]))) {
+    coldata[[field]] <- factor(ss[[field]])
+  }
+}
+coldata$condition <- factor(coldata$condition)
+coldata$replicate <- factor(coldata$replicate)
 dds <- DESeqDataSetFromMatrix(counts_mat, coldata, as.formula(opt$design))
 dds <- estimateSizeFactors(dds)
 SF  <- sizeFactors(dds)

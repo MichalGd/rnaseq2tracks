@@ -1,5 +1,5 @@
 ---
-title: "rnaseq2tracks — Pipeline Report"
+title: "rnaseq2tracks final report"
 date: "`r Sys.Date()`"
 params:
   outdir: ""
@@ -17,78 +17,174 @@ output:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE)
-library(knitr); library(kableExtra); library(data.table); library(ggplot2)
+suppressPackageStartupMessages({
+  library(knitr)
+  library(kableExtra)
+  library(data.table)
+  library(ggplot2)
+})
 out <- params$outdir
-```
-
-## Run summary
-
-```{r config_tbl}
-cfg_vars <- c("SPECIES","GENOME_ASSEMBLY","LIBRARY_LAYOUT","REGULAR_CHROMS_ONLY","CHROMOSOME_NAMING")
-cfg_vals <- unlist(lapply(cfg_vars, function(v) {
-  tryCatch(readLines(params$config)[grep(paste0("^",v,"="),readLines(params$config))][1], error=function(e) NA)
-}))
-kable(data.frame(Parameter=cfg_vars, Value=cfg_vals), "html") %>%
-  kable_styling(bootstrap_options=c("striped","condensed"), full_width=FALSE)
-```
-
-## Samplesheet
-
-```{r samplesheet_tbl}
-ss <- read.csv(params$samplesheet, comment.char="#")
-kable(ss, "html") %>% kable_styling(bootstrap_options=c("striped","condensed"))
-```
-
-## STAR alignment summary
-
-```{r star_qc}
-star_tsv <- file.path(out,"07_qc","star","star_alignment_summary.tsv")
-if (file.exists(star_tsv)) {
-  dt <- fread(star_tsv, sep="\t")
-  kable(dt, "html", digits=2) %>%
-    kable_styling(bootstrap_options=c("striped","condensed")) %>%
+show_table <- function(path, ...) {
+  if (!file.exists(path)) return(cat("Not available."))
+  tab <- tryCatch(fread(path, ...), error=function(e) NULL)
+  if (is.null(tab) || nrow(tab) == 0) return(cat("No rows."))
+  kable(tab, "html", digits=3) %>%
+    kable_styling(bootstrap_options=c("striped", "condensed"), full_width=FALSE) %>%
     scroll_box(width="100%")
-} else {
-  cat("STAR summary not found.")
+}
+embed_images <- function(paths, width="90%") {
+  paths <- paths[file.exists(paths)]
+  if (length(paths) == 0) return(cat("No plots available."))
+  for (p in paths) {
+    cat("\n\n**", basename(p), "**\n\n", sep="")
+    print(include_graphics(p))
+  }
 }
 ```
 
-## Size factors
+## Analysis overview
 
-```{r sf_tbl}
-sf_f <- file.path(out,"analysis","counts","size_factors.tsv")
-if (file.exists(sf_f)) {
-  dt <- fread(sf_f, sep="\t")
-  kable(dt, "html", digits=4) %>%
-    kable_styling(bootstrap_options=c("striped","condensed"), full_width=FALSE)
-} else cat("Size factors not found.")
+This report summarizes an `rnaseq2tracks` run. Technical-library and lane rows are
+processed independently through alignment, then merged into biological samples
+before counting, track normalization, differential expression and enrichment.
+
+```{r overview}
+prov <- file.path(out, "metadata", "run_provenance.tsv")
+if (file.exists(prov)) show_table(prov, header=FALSE, col.names=c("Field", "Value"))
 ```
 
-## RSeQC — infer_experiment
+## Configuration
 
-```{r infer_exp}
-ie_dir <- file.path(out,"07_qc","rseqc","infer_experiment")
-if (dir.exists(ie_dir)) {
-  files <- list.files(ie_dir, pattern="\\.txt$", full.names=TRUE)
-  rows <- lapply(files, function(f) {
-    lines <- readLines(f)
-    sid   <- sub("_infer_experiment\\.txt","",basename(f))
-    fwd   <- as.numeric(gsub(".*: ","",lines[grep("1\\+\\+",lines)[1]]))
-    rev_  <- as.numeric(gsub(".*: ","",lines[grep("1\\+\\-",lines)[1]]))
-    fail  <- as.numeric(gsub(".*: ","",lines[grep("failed",lines)[1]]))
-    data.frame(sample=sid, forward_pct=round(fwd*100,1),
-               reverse_pct=round(rev_*100,1), undetermined_pct=round(fail*100,1))
-  })
-  df <- do.call(rbind, rows)
-  kable(df, "html") %>% kable_styling(bootstrap_options=c("striped","condensed"))
-} else cat("infer_experiment outputs not found.")
+```{r configuration}
+cfg_vars <- c("PROJECT_ID", "SPECIES", "GENOME_ASSEMBLY", "LIBRARY_LAYOUT",
+              "DESIGN_FORMULA", "RUN_FASTQSCREEN", "RUN_RSEQC", "RUN_DE",
+              "RUN_ENRICHMENT", "REGULAR_CHROMS_ONLY", "CHROMOSOME_NAMING")
+lines <- if (file.exists(params$config)) readLines(params$config, warn=FALSE) else character()
+values <- vapply(cfg_vars, function(key) {
+  hit <- grep(paste0("^", key, "="), lines, value=TRUE)
+  if (length(hit)) sub("^[^=]+=?", "", hit[1]) else NA_character_
+}, character(1))
+kable(data.frame(Parameter=cfg_vars, Value=values), "html") %>%
+  kable_styling(bootstrap_options=c("striped", "condensed"), full_width=FALSE)
 ```
 
-## Outputs
+## Samples and technical-replicate merging
+
+```{r samples}
+show_table(file.path(out, "metadata", "validated_samples.tsv"))
+```
+
+```{r merge_audit}
+show_table(file.path(out, "metadata", "technical_merge_audit.tsv"))
+```
+
+The sample-level count matrix and final BAM contain the sum/union of all lane
+rows assigned to that `sample_id`. Technical rows are not treated as independent
+replicates in DESeq2.
+
+## Read and alignment QC
+
+The final MultiQC report combines raw/trimmed FastQC, FastQ Screen, STAR and
+RSeQC outputs. Open `multiQC/final/multiQC_final.html` for interactive details.
+
+```{r star_qc}
+show_table(file.path(out, "07_qc", "star", "star_alignment_summary.tsv"))
+```
+
+### Library strandedness
+
+```{r infer_experiment}
+ie_dir <- file.path(out, "07_qc", "rseqc", "infer_experiment")
+files <- if (dir.exists(ie_dir)) list.files(ie_dir, pattern="[.]txt$", full.names=TRUE) else character()
+if (length(files)) {
+  txt <- rbindlist(lapply(files, function(path) {
+    x <- readLines(path, warn=FALSE)
+    data.table(sample=sub("_infer_experiment[.]txt$", "", basename(path)),
+               summary=paste(x[grepl("Fraction of reads", x)], collapse="; "))
+  }), fill=TRUE)
+  kable(txt, "html") %>% kable_styling(bootstrap_options=c("striped", "condensed"))
+} else cat("infer_experiment outputs are not available.")
+```
+
+### Gene-body coverage
+
+Gene-body coverage is an important RNA integrity and 5'/3' bias diagnostic.
+Large systematic differences between samples should be reviewed before biological
+interpretation.
+
+```{r genebody, results='asis'}
+gb_dir <- file.path(out, "07_qc", "rseqc", "genebody")
+gb <- if (dir.exists(gb_dir)) list.files(gb_dir, pattern="[.](png|pdf)$", full.names=TRUE) else character()
+embed_images(head(gb, 24))
+```
+
+## Expression and sample relationships
+
+```{r size_factors}
+show_table(file.path(out, "analysis", "counts", "size_factors.tsv"))
+```
+
+```{r global_plots, results='asis'}
+fig_dir <- file.path(out, "analysis", "figures")
+figs <- if (dir.exists(fig_dir)) list.files(fig_dir, pattern="[.]png$", full.names=TRUE) else character()
+embed_images(figs)
+```
+
+## Differential expression
+
+DESeq2 operates on biological samples after technical-lane count summation.
+Reported fold changes are shrunken with apeglm when available (ashr fallback).
+
+```{r de_summary}
+de_dir <- file.path(out, "analysis", "DE")
+sig_files <- if (dir.exists(de_dir)) list.files(de_dir, pattern="_significant[.]tsv$", full.names=TRUE) else character()
+if (length(sig_files)) {
+  summary <- rbindlist(lapply(sig_files, function(path) {
+    tab <- tryCatch(fread(path), error=function(e) data.table())
+    data.table(contrast=sub("_significant[.]tsv$", "", basename(path)),
+               significant_genes=nrow(tab),
+               up=sum(tab$log2FoldChange > 0, na.rm=TRUE),
+               down=sum(tab$log2FoldChange < 0, na.rm=TRUE))
+  }))
+  kable(summary, "html") %>% kable_styling(bootstrap_options=c("striped", "condensed"))
+} else cat("No significant-gene tables were produced.")
+```
+
+```{r de_plots, results='asis'}
+de_plots <- if (dir.exists(de_dir)) list.files(de_dir, pattern="_(volcano_shrunk|MA_shrunk)[.]png$", full.names=TRUE) else character()
+embed_images(de_plots)
+```
+
+## Functional enrichment
+
+For every contrast, the workflow attempts ORA and ranked GSEA against GO BP/MF/CC,
+KEGG, Reactome and MSigDB Hallmarks. Empty result tables are valid when no gene
+set passes the configured threshold.
+
+```{r enrichment_summary}
+enr_dir <- file.path(out, "analysis", "enrichment")
+enr_files <- if (dir.exists(enr_dir)) list.files(enr_dir, pattern="_(ORA|GSEA)_.+[.]tsv$", recursive=TRUE, full.names=TRUE) else character()
+if (length(enr_files)) {
+  enr <- rbindlist(lapply(enr_files, function(path) {
+    tab <- tryCatch(fread(path), error=function(e) data.table())
+    rel <- sub(paste0("^", normalizePath(enr_dir, winslash="/"), "/?"), "", normalizePath(path, winslash="/"))
+    data.table(result=rel, terms=nrow(tab))
+  }))
+  kable(enr, "html") %>% kable_styling(bootstrap_options=c("striped", "condensed")) %>%
+    scroll_box(width="100%", height="500px")
+} else cat("No enrichment tables are available.")
+```
+
+## Deliverables and provenance
 
 ```{r outputs}
-dirs <- c("fastQC","multiQC","STARlogs","07_qc","bams","bedGraph","bigwig","analysis","reports")
-exist <- sapply(dirs, function(d) if(dir.exists(file.path(out,d))) "✓" else "—")
-kable(data.frame(Directory=dirs, Present=exist), "html") %>%
-  kable_styling(bootstrap_options=c("striped","condensed"), full_width=FALSE)
+dirs <- c("fastQC", "fastQScreen", "multiQC", "STARlogs", "STARgeneCounts",
+          "07_qc", "bams", "bedGraph", "bigwig", "analysis", "reports")
+status <- vapply(dirs, function(d) if (dir.exists(file.path(out, d))) "present" else "missing", character(1))
+kable(data.frame(Directory=dirs, Status=status), "html") %>%
+  kable_styling(bootstrap_options=c("striped", "condensed"), full_width=FALSE)
 ```
+
+The human-readable master log is `logs/rnaseq2tracks.log`; current/final machine-
+readable state is `metadata/run_status.tsv`; the immutable run summary is
+`metadata/run_provenance.tsv`.

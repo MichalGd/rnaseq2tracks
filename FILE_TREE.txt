@@ -1,55 +1,37 @@
-# rnaseq2tracks v5.1 — file tree
-
-./.gitattributes
-./.gitignore
-./CHANGELOG.md
-./CITATION.cff
-./FILE_TREE.txt
-./LICENSE
-./MANIFEST.sha256
-./README.md
-./config/config_template.conf
-./config/contrasts_template.csv
-./config/fastq_screen.conf
-./config/samplesheet_template_PE.csv
-./config/samplesheet_template_SE.csv
-./docs/CLEANUP.md
-./docs/FASTQSCREEN.md
-./docs/GITHUB_UPLOAD.md
-./docs/INSTALLATION.md
-./docs/KNOWN_ISSUES.md
-./docs/OUTPUTS.md
-./docs/RSEQC.md
-./docs/SCRIPTS.md
-./docs/THRESHOLDS.md
-./docs/USAGE.md
-./docs/WORKFLOW.md
-./docs/gene_set_enrichment.md
-./environment.yml
-./examples/contrasts_example.csv
-./examples/samplesheet_example_PE.csv
-./examples/samplesheet_example_SE.csv
-./examples/ucsc_tracks_example.txt
-./scripts/Rscripts/bam_to_bedgraph.R
-./scripts/Rscripts/deseq2_de.R
-./scripts/Rscripts/deseq2_enrichment.R
-./scripts/Rscripts/deseq2_normalize.R
-./scripts/Rscripts/deseq2_qc_plots.R
-./scripts/Rscripts/merge_bedgraph_replicates.R
-./scripts/Rscripts/normalize_bedgraph.R
-./scripts/Rscripts/pipeline_report.Rmd
-./scripts/bam_sort_index.sh
-./scripts/check_strand_consistency.sh
-./scripts/cleanup_existing_run.sh
-./scripts/collect_star_qc.sh
-./scripts/create_ucsc_tracks.sh
-./scripts/norm_bedgraph_to_bigwig.sh
-./scripts/preflight_check.sh
-./scripts/rerun_deseq_rep12.sh
-./scripts/rnaseq2tracks.sh
-./scripts/run_rnaseq_qc.sh
-./scripts/star_PE_single.sh
-./scripts/star_SE_single.sh
-./scripts/trimgalore_single.sh
-./tests/check_bash_syntax.sh
-./tests/run_smoke_test.sh
+rnaseq2tracks/
+├── VERSION
+├── README.md
+├── CHANGELOG.md
+├── CITATION.cff
+├── LICENSE
+├── environment.yml
+├── bin/
+│   └── rnaseq2tracks
+├── config/
+│   ├── config_template.conf
+│   ├── samplesheet_template_SE.csv
+│   ├── samplesheet_template_PE.csv
+│   ├── contrasts_template.csv
+│   └── fastq_screen.conf
+├── docs/
+│   ├── README.md
+│   ├── QUICK_START.md
+│   ├── SAMPLESHEET.md
+│   ├── CONFIGURATION.md
+│   ├── WORKFLOW.md
+│   ├── QC.md
+│   ├── ANALYSIS.md
+│   ├── OUTPUTS.md
+│   ├── OPERATIONS.md
+│   ├── INSTALLATION.md
+│   ├── MIGRATION.md
+│   ├── LIMITATIONS.md
+│   └── ARCHITECTURE_COMPARISON.md
+├── examples/
+├── scripts/
+│   ├── rnaseq2tracks.sh
+│   ├── prepare_samplesheet.py
+│   ├── merge_star_counts.py
+│   ├── bash/install_release.sh
+│   └── Rscripts/
+└── tests/
