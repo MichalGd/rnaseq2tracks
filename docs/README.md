@@ -1,20 +1,39 @@
 # Documentation index
 
-Use this index as the entry point for `rnaseq2tracks`.
+This index separates ordinary run guidance from methods, interpretation, and
+administrator references. The pages describe the current executable behavior of
+`rnaseq2tracks` release `v6.0.0-alpha.1.post1`. Commands from
+`rna_ends2tracks` are not interchangeable: this workflow does not currently
+provide `status`, `--dry-run`, `--from-step`, or `--stop-after` CLI controls.
 
-1. [Quick start](QUICK_START.md) — prepare and launch a project.
-2. [Samplesheet](SAMPLESHEET.md) — biological samples, technical libraries and lanes.
-3. [Configuration](CONFIGURATION.md) — every supported control group.
-4. [Workflow](WORKFLOW.md) — ordered processing stages and methods.
-5. [QC](QC.md) — FastQC, FastQ Screen, STAR, RSeQC and interpretation.
-6. [Analysis](ANALYSIS.md) — DESeq2, plots, ORA and GSEA.
-7. [Outputs](OUTPUTS.md) — result tree and retained deliverables.
-8. [Operations](OPERATIONS.md) — logs, status, checkpoints, restart and cleanup.
-9. [Installation](INSTALLATION.md) — immutable shared server releases.
-10. [Migration](MIGRATION.md) — old samplesheets and `rnaseq2tracksP` rename.
-11. [Limitations](LIMITATIONS.md) — boundaries and interpretation cautions.
-12. [Architecture comparison](ARCHITECTURE_COMPARISON.md) — what was backported
-    from `rna_ends2tracks` and why.
+## Start and operate a project
 
-The README gives the shortest overview. These pages are the authoritative user
-documentation and describe current behavior rather than historical versions.
+| Question | Document |
+|---|---|
+| How do I create and launch a project? | [Quick start](QUICK_START.md) |
+| What does each stage do and which stages overlap? | [Workflow steps and dependencies](WORKFLOW.md) |
+| Which `config.conf` settings should I change? | [Configuration guide](CONFIGURATION.md) |
+| How do I encode biological samples, technical libraries, and lanes? | [Samplesheet contract](SAMPLESHEET.md) |
+| How do I monitor, resume, troubleshoot, or clean a run? | [Operations](OPERATIONS.md) |
+| How is a tagged shared release installed or rolled back? | [Installation](INSTALLATION.md) |
+
+## Methods, QC, and interpretation
+
+| Topic | Document |
+|---|---|
+| Alignment, count selection, normalization, tracks, and reproducibility | [Methods](METHODS.md) |
+| QC review order and decision principles | [QC overview](QC.md) |
+| Species/contamination screening and database requirements | [FastQ Screen](FASTQ_SCREEN.md) |
+| Orientation, read distribution, junctions, and gene-body coverage | [RSeQC](RSEQC.md) |
+| DESeq2, MA/volcano plots, ORA, GSEA, and pathway databases | [Differential expression and enrichment](ANALYSIS.md) |
+| Output tree, final HTML report, BigWigs, and UCSC descriptors | [Outputs](OUTPUTS.md) |
+| Supported scope and scientific/operational boundaries | [Limitations](LIMITATIONS.md) |
+
+## Migration and design references
+
+- [Migration from `rnaseq2tracksP`](MIGRATION.md)
+- [Architecture comparison and backport rationale](ARCHITECTURE_COMPARISON.md)
+
+The root [README](../README.md) provides the shortest overview. The repository
+`VERSION` file and `rnaseq2tracks --version` identify the software release;
+release history is recorded in the root `CHANGELOG.md`.
